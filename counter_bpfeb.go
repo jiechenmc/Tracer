@@ -53,7 +53,7 @@ type counterSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type counterProgramSpecs struct {
-	CountPackets *ebpf.ProgramSpec `ebpf:"count_packets"`
+	XdpPass *ebpf.ProgramSpec `ebpf:"xdp_pass"`
 }
 
 // counterMapSpecs contains maps before they are loaded into the kernel.
@@ -95,12 +95,12 @@ func (m *counterMaps) Close() error {
 //
 // It can be passed to loadCounterObjects or ebpf.CollectionSpec.LoadAndAssign.
 type counterPrograms struct {
-	CountPackets *ebpf.Program `ebpf:"count_packets"`
+	XdpPass *ebpf.Program `ebpf:"xdp_pass"`
 }
 
 func (p *counterPrograms) Close() error {
 	return _CounterClose(
-		p.CountPackets,
+		p.XdpPass,
 	)
 }
 

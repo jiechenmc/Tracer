@@ -32,7 +32,7 @@ func main() {
 
 	// Attach count_packets to the network interface.
 	link, err := link.AttachXDP(link.XDPOptions{
-		Program:   objs.CountPackets,
+		Program:   objs.XdpPass,
 		Interface: iface.Index,
 	})
 	if err != nil {
