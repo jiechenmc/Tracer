@@ -6,10 +6,10 @@
 
 struct
 {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_ARRAY);
     __type(key, __u32);
     __type(value, __u64);
-    __uint(max_entries, 1);
+    __uint(max_entries, 100);
 } pkt_count SEC(".maps");
 
 SEC("xdp")
