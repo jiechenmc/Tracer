@@ -50,7 +50,24 @@ int xdp_pass(struct xdp_md *ctx)
         bpf_printk("XDP: IP header validation failed\n");
         return XDP_PASS;
     }
+
+    // ALLOW ALL NON TCP PACKETS THROUGH
+    if (iph->protocol != IPPROTO_TCP)
+    {
+        return XDP_PASS;
+    }
+
     bpf_printk("IP address is %pI4\n | %u", &iph->saddr, iph->saddr);
+
+    //
+    struct tcphdr *tcph = (struct tcphdr *)((__u32 *)iph + iph->ihl);
+
+    if ((void *)(tcph + 1) > data_end)
+    {
+        return XDP_PASS;
+    }
+
+    bpf_printk("PACKET DEST PORT %u\n", bpf_htons(tcph->dest));
 
     __u32 key = iph->saddr;
 
@@ -64,12 +81,6 @@ int xdp_pass(struct xdp_md *ctx)
     {
         __u64 value = 1;
         bpf_map_update_elem(&pkt_count, &key, &value, BPF_ANY);
-    }
-
-    // ALLOW ALL NON TCP PACKETS THROUGH
-    if (iph->protocol != IPPROTO_TCP)
-    {
-        return XDP_PASS;
     }
 
     return XDP_PASS;
