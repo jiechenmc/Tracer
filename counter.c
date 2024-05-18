@@ -57,17 +57,20 @@ int xdp_pass(struct xdp_md *ctx)
         return XDP_PASS;
     }
 
-    bpf_printk("IP address is %pI4\n | %u", &iph->saddr, iph->saddr);
+    // 1.2.3.4
+    //      byte4                   byte3                         byte2                     byte1
+    // iph->saddr >> 24, (iph->saddr & 0x00FF0000) >> 16, (iph->saddr & 0xFF00) >> 8, iph->saddr & 0xFF
 
-    //
-    struct tcphdr *tcph = (struct tcphdr *)((__u32 *)iph + iph->ihl);
+    bpf_printk("RECV FROM: %pI4 | %u\n", &iph->saddr, iph->saddr);
+    // TCP information
+    // struct tcphdr *tcph = (struct tcphdr *)((__u32 *)iph + iph->ihl);
 
-    if ((void *)(tcph + 1) > data_end)
-    {
-        return XDP_PASS;
-    }
+    // if ((void *)(tcph + 1) > data_end)
+    // {
+    //     return XDP_PASS;
+    // }
 
-    bpf_printk("PACKET DEST PORT %u\n", bpf_htons(tcph->dest));
+    // bpf_printk("PACKET DEST PORT %u\n", bpf_htons(tcph->dest));
 
     __u32 key = iph->saddr;
 

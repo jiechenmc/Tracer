@@ -5,11 +5,28 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
 )
+
+func ip2int(ip string) uint32 {
+
+	split := strings.Split(ip, ".")
+	p1, _ := strconv.Atoi(split[0])
+	p2, _ := strconv.Atoi(split[1])
+	p3, _ := strconv.Atoi(split[2])
+	p4, _ := strconv.Atoi(split[3])
+
+	// 1.2.3.4
+	//      byte4                   byte3                         byte2                     byte1
+	// iph->saddr >> 24, (iph->saddr & 0x00FF0000) >> 16, (iph->saddr & 0xFF00) >> 8, iph->saddr & 0xFF
+	// The order has to be reversed since machine is little endian
+	return uint32(p4<<24 | p3<<16 | p2<<8 | p1)
+}
 
 func main() {
 	// Remove resource limits for kernels <5.11.
@@ -52,7 +69,11 @@ func main() {
 		case <-tick:
 			var count uint64
 
-			err := objs.PktCount.Lookup(uint32(21014720), &count)
+			target := "142.251.40.196"
+
+			targetKey := ip2int(target)
+
+			err := objs.PktCount.Lookup(targetKey, &count)
 			if err != nil {
 				log.Printf("Waiting for first packet... %s", err)
 			} else {
