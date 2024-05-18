@@ -51,11 +51,13 @@ func main() {
 		select {
 		case <-tick:
 			var count uint64
-			err := objs.PktCount.Lookup(uint32(0), &count)
+
+			err := objs.PktCount.Lookup(uint32(21014720), &count)
 			if err != nil {
-				log.Fatal("Map lookup:", err)
+				log.Printf("Waiting for first packet... %s", err)
+			} else {
+				log.Printf("Received %d packets", count)
 			}
-			log.Printf("Received %d packets", count)
 		case <-stop:
 			log.Print("Received signal, exiting..")
 			return

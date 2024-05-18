@@ -4,63 +4,72 @@
 #include <bpf/bpf_helpers.h>
 #include <linux/if_ether.h>
 #include <linux/ip.h>
-#include <linux/udp.h>
+#include <linux/tcp.h>
 #include <linux/in.h>
 #include <asm-generic/types.h>
+#include <linux/dns_resolver.h>
+
+// Define htons function for byte order conversion, specific to BPF's environment
+#define bpf_htons(x) ((__be16)___constant_swab16((x)))
 
 struct
 {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, __u32);
     __type(value, __u64);
     __uint(max_entries, 100);
 } pkt_count SEC(".maps");
 
-static __always_inline int parse_ip_src_addr(struct xdp_md *ctx, __u32 *ip_src_addr)
-{
-    void *data_end = (void *)(long)ctx->data_end;
-    void *data = (void *)(long)ctx->data;
-
-    // First, parse the ethernet header.
-    struct ethhdr *eth = data;
-    if ((void *)(eth + 1) > data_end)
-    {
-        return 0;
-    }
-
-    if (eth->h_proto != bpf_htons(ETH_P_IP))
-    {
-        // The protocol is not IPv4, so we can't parse an IPv4 source address.
-        return 0;
-    }
-
-    // Then parse the IP header.
-    struct iphdr *ip = (void *)(eth + 1);
-    if ((void *)(ip + 1) > data_end)
-    {
-        return 0;
-    }
-
-    // Return the source IP address in network byte order.
-    *ip_src_addr = (__u32)(ip->saddr);
-    return 1;
-}
-
 SEC("xdp")
+
 int xdp_pass(struct xdp_md *ctx)
 {
 
-    __u32 key = 0;
+    void *data_end = (void *)(long)ctx->data_end; // end of data from context
+    void *data = (void *)(long)ctx->data;         // start of data from context
+
+    // Point to the start of the ethernet header within the data
+    struct ethhdr *eth = data;
+
+    // Verify that the ethernet header is within the bounds of the data
+    if ((void *)eth + sizeof(*eth) > data_end)
+    {
+        return XDP_PASS;
+    }
+
+    // Check if the ethernet frame contains an IP packet (ETH_P_IP is the IPv4 EtherType) converts host to network bytes order
+    if (eth->h_proto != bpf_htons(ETH_P_IP))
+    {
+        return XDP_PASS;
+    }
+
+    struct iphdr *iph = data + sizeof(*eth); // Point to the IP header after the ethernet header
+    // Verify that the IP header is within the bounds of the data
+    if ((void *)iph + sizeof(*iph) > data_end)
+    {
+        bpf_printk("XDP: IP header validation failed\n");
+        return XDP_PASS;
+    }
+    bpf_printk("IP address is %pI4\n | %u", &iph->saddr, iph->saddr);
+
+    __u32 key = iph->saddr;
+
     __u64 *count = bpf_map_lookup_elem(&pkt_count, &key);
 
     if (count)
     {
-        void *data = (void *)(long)ctx->data;
-        void *data_end = (void *)(long)ctx->data_end;
-        struct ethhdr *eth = data;
-        *count = data_end - data;
+        __sync_fetch_and_add(count, 1);
+    }
+    else
+    {
+        __u64 value = 1;
+        bpf_map_update_elem(&pkt_count, &key, &value, BPF_ANY);
+    }
 
-        bpf_printk("packet size is %d", eth->h_dest);
+    // ALLOW ALL NON TCP PACKETS THROUGH
+    if (iph->protocol != IPPROTO_TCP)
+    {
+        return XDP_PASS;
     }
 
     return XDP_PASS;
