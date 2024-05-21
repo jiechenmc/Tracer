@@ -3,30 +3,13 @@ package main
 import (
 	"log"
 	"net"
-	"os"
-	"os/signal"
-	"strconv"
-	"strings"
-	"time"
+	"net/netip"
 
+	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
+	"github.com/gin-gonic/gin"
 )
-
-func ip2int(ip string) uint32 {
-
-	split := strings.Split(ip, ".")
-	p1, _ := strconv.Atoi(split[0])
-	p2, _ := strconv.Atoi(split[1])
-	p3, _ := strconv.Atoi(split[2])
-	p4, _ := strconv.Atoi(split[3])
-
-	// 1.2.3.4
-	//      byte4                   byte3                         byte2                     byte1
-	// iph->saddr >> 24, (iph->saddr & 0x00FF0000) >> 16, (iph->saddr & 0xFF00) >> 8, iph->saddr & 0xFF
-	// The order has to be reversed since machine is little endian
-	return uint32(p4<<24 | p3<<16 | p2<<8 | p1)
-}
 
 func main() {
 	// Remove resource limits for kernels <5.11.
@@ -59,29 +42,48 @@ func main() {
 
 	log.Printf("Counting incoming packets on %s..", ifname)
 
-	// Periodically fetch the packet counter from PktCount,
-	// exit the program when interrupted.
-	tick := time.Tick(time.Second)
-	stop := make(chan os.Signal, 5)
-	signal.Notify(stop, os.Interrupt)
-	for {
-		select {
-		case <-tick:
-			var count uint64
+	r := gin.Default()
+	r.Use(CORSMiddleware())
 
-			target := "142.251.40.196"
+	r.GET("/api/all", func(c *gin.Context) {
 
-			targetKey := ip2int(target)
+		s, err := formatMapContents(objs.PktCount)
+		if err != nil {
+			log.Printf("Error reading map: %s", err)
+		}
 
-			err := objs.PktCount.Lookup(targetKey, &count)
-			if err != nil {
-				log.Printf("Waiting for first packet... %s", err)
-			} else {
-				log.Printf("Received %d packets", count)
-			}
-		case <-stop:
-			log.Print("Received signal, exiting..")
+		c.JSON(200, s)
+	})
+	r.Run() // listen and serve on 0.0.0.0:8080
+}
+
+func formatMapContents(m *ebpf.Map) (map[string]int, error) {
+	var (
+		rmap = make(map[string]int)
+		key  netip.Addr
+		val  uint64
+	)
+	iter := m.Iterate()
+	for iter.Next(&key, &val) {
+		sourceIP := key // IPv4 source address in network byte order.
+		packetCount := val
+		rmap[sourceIP.String()] = int(packetCount)
+	}
+	return rmap, iter.Err()
+}
+
+func CORSMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
 			return
 		}
+
+		c.Next()
 	}
 }

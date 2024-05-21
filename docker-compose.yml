@@ -1,0 +1,12 @@
+version: "3"
+services:
+  react:
+    container_name: react
+    build: ./frontend
+    network_mode: host
+
+  server:
+    container_name: server
+    build: .
+    privileged: true
+    network_mode: host
