@@ -1,15 +1,61 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net"
+	"net/http"
 	"net/netip"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
-	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
+
+var addr = flag.String("addr", "localhost:8080", "http service address")
+
+var upgrader = websocket.Upgrader{} // use default options
+var objs counterObjects
+
+func echo(w http.ResponseWriter, r *http.Request) {
+	c, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Print("upgrade:", err)
+		return
+	}
+	defer c.Close()
+	stop := make(chan bool, 1)
+
+	for {
+		mt, message, err := c.ReadMessage()
+		if err != nil {
+			log.Println("read:", err)
+			break
+		}
+		updateTicker := time.NewTicker(1 * time.Second)
+		for {
+			select {
+			case <-updateTicker.C:
+				s, err := formatMapContents(objs.PktCount)
+				if err != nil {
+					log.Printf("Error reading map: %s", err)
+				}
+				log.Printf("recv: %d | %s", mt, message)
+				err = c.WriteJSON(s)
+				if err != nil {
+					stop <- true
+					log.Println("write:", err)
+					break
+				}
+			case <-stop:
+				return
+			}
+		}
+
+	}
+}
 
 func main() {
 	// Remove resource limits for kernels <5.11.
@@ -18,7 +64,7 @@ func main() {
 	}
 
 	// Load the compiled eBPF ELF and load it into the kernel.
-	var objs counterObjects
+
 	if err := loadCounterObjects(&objs, nil); err != nil {
 		log.Fatal("Loading eBPF objects:", err)
 	}
@@ -41,20 +87,13 @@ func main() {
 	defer link.Close()
 
 	log.Printf("Counting incoming packets on %s..", ifname)
+	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
 
-	r := gin.Default()
-	r.Use(CORSMiddleware())
+	http.HandleFunc("/echo", echo)
 
-	r.GET("/api/all", func(c *gin.Context) {
-
-		s, err := formatMapContents(objs.PktCount)
-		if err != nil {
-			log.Printf("Error reading map: %s", err)
-		}
-
-		c.JSON(200, s)
-	})
-	r.Run() // listen and serve on 0.0.0.0:8080
+	flag.Parse()
+	log.SetFlags(0)
+	http.ListenAndServe(*addr, nil)
 }
 
 func formatMapContents(m *ebpf.Map) (map[string]int, error) {
@@ -63,27 +102,15 @@ func formatMapContents(m *ebpf.Map) (map[string]int, error) {
 		key  netip.Addr
 		val  uint64
 	)
+
 	iter := m.Iterate()
 	for iter.Next(&key, &val) {
 		sourceIP := key // IPv4 source address in network byte order.
 		packetCount := val
-		rmap[sourceIP.String()] = int(packetCount)
+		val, err := net.LookupAddr(sourceIP.String())
+		if err == nil {
+			rmap[val[0]] = int(packetCount)
+		}
 	}
 	return rmap, iter.Err()
-}
-
-func CORSMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
-	}
 }

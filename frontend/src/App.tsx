@@ -6,11 +6,18 @@ function App() {
   const [packetSum, setPacketSum] = useState(0)
 
   useEffect(() => {
-    setInterval(() => {
-      fetch("http://localhost:8080/api/all").then(r => r.json().then(d =>
-        setData(d)
-      ))
-    }, 1000)
+    const socket = new WebSocket("ws://localhost:8080/echo")
+
+    socket.addEventListener("open", (event) => {
+      socket.send("Connection established")
+    })
+
+    socket.addEventListener("message", (event) => {
+      console.log("Message from server ", event.data)
+      setData(JSON.parse(event.data))
+    })
+
+    return () => { socket.close() }
   }, [])
 
   useEffect(() => {
