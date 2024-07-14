@@ -14,7 +14,11 @@ function App() {
 
     socket.addEventListener("message", (event) => {
       console.log("Message from server ", event.data)
-      setData(JSON.parse(event.data))
+      const packetData = JSON.parse(event.data)
+      const keyValueArray: [string, number][] = Object.entries(packetData);
+      keyValueArray.sort(([, valueA], [, valueB]) => valueB - valueA);
+      const sortedObj = Object.fromEntries(keyValueArray);
+      setData(sortedObj)
     })
 
     return () => { socket.close() }
