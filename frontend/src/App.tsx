@@ -32,7 +32,7 @@ function App() {
     <div>
       <table>
         <tr>
-          <th>Source IP</th>
+          <th>Source</th>
           <th>Packet Count</th>
         </tr>
         {Object.keys(data).map(k => <tr key={k}><td>{k}</td> <td>{data[k]}</td></tr>)}
